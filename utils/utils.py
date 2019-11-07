@@ -333,7 +333,7 @@ def compute_loss(p, targets, model):  # predictions, targets, model
         if nb:  # number of targets
             ps = pi[b, a, gj, gi]  # prediction subset corresponding to targets
             tobj[b, a, gj, gi] = 1.0  # obj
-            # ps[:, 2:4] = torch.sigmoid(ps[:, 2:4])  # wh power loss (uncomment)
+            ps[:, 2:4] = torch.sigmoid(ps[:, 2:4])  # wh power loss (uncomment)
 
             # GIoU
             pxy = torch.sigmoid(ps[:, 0:2])  # pxy = pxy * s - (s - 1) / 2,  s = 1.5  (scale_xy)
