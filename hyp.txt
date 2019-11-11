@@ -1,0 +1,19 @@
+3.31  # giou loss gain
+42.4  # cls loss gain
+1.0  # cls BCELoss positive_weight
+40.0  # obj loss gain (*=img_size/320 * 1.1 if img_size > 320)
+1.0  # obj BCELoss positive_weight
+0.213  # iou training threshold
+0.00261  # initial learning rate (SGD=1E-3, Adam=9E-5)
+-4.  # final LambdaLR learning rate = lr0 * (10 ** lrf)
+0.949  # SGD momentum
+0.000489  # optimizer weight decay
+0.5  # focal loss gamma
+0.0103  # image HSV-Hue augmentation (fraction)
+0.691  # image HSV-Saturation augmentation (fraction)
+0.433  # image HSV-Value augmentation (fraction)
+1.43  # image rotation (+/- deg)
+0.0663  # image translation (+/- fraction)
+0.11  # image scale (+/- gain)
+0.384  # image shear (+/- deg)
+
