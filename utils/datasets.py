@@ -579,6 +579,7 @@ def load_mosaic(self, index):
                 with open(label_path, 'r') as f:
                     x = np.array([x.split() for x in f.read().splitlines()], dtype=np.float32)
 
+            labels = []
             if x.size > 0:
                 # Normalized xywh to pixel xyxy format
                 labels = x.copy()
@@ -586,8 +587,8 @@ def load_mosaic(self, index):
                 labels[:, 2] = h * (x[:, 2] - x[:, 4] / 2) + padh
                 labels[:, 3] = w * (x[:, 1] + x[:, 3] / 2) + padw
                 labels[:, 4] = h * (x[:, 2] + x[:, 4] / 2) + padh
-
             labels4.append(labels)
+
     if len(labels4):
         labels4 = np.concatenate(labels4, 0)
 
@@ -796,6 +797,15 @@ def convert_images2bmp():
             '/Users/glennjocher/PycharmProjects/', '../')
         with open(label_path.replace('5k', '5k_bmp'), 'w') as file:
             file.write(lines)
+
+
+def imagelist2folder(path='../data/sm3/out_test.txt'):  # from utils.datasets import *; imagelist2folder()
+    # Copies all the images in a text file (list of images) into a folder
+    create_folder(path[:-4])
+    with open(path, 'r') as f:
+        for line in f.read().splitlines():
+            os.system('cp "%s" %s' % (line, path[:-4]))
+            print(line)
 
 
 def create_folder(path='./new_folder'):

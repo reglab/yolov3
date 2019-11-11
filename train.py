@@ -22,11 +22,9 @@ results_file = 'results.txt'
 
 # Hyperparameters (k-series, 53.3 mAP yolov3-spp-320) https://github.com/ultralytics/yolov3/issues/310
 hyp = {'giou': 3.31,  # giou loss gain
-       #'cls': 42.4,  # cls loss gain
-       'cls': 0.04,
+       'cls': 42.4,  # cls loss gain
        'cls_pw': 1.0,  # cls BCELoss positive_weight
-       #'obj': 40.0,  # obj loss gain
-       'obj': 0.1,
+       'obj': 40.0,  # obj loss gain (*=img_size/320 * 1.1 if img_size > 320)
        'obj_pw': 1.0,  # obj BCELoss positive_weight
        'iou_t': 0.213,  # iou training threshold
        'lr0': 0.00261,  # initial learning rate (SGD=1E-3, Adam=9E-5)
@@ -409,7 +407,7 @@ if __name__ == '__main__':
     parser.add_argument('--bucket', type=str, default='', help='gsutil bucket')
     parser.add_argument('--img-weights', action='store_true', help='select training images by weight')
     parser.add_argument('--cache-images', action='store_true', help='cache images for faster training')
-    parser.add_argument('--weights', type=str, default='', help='initial weights')  # i.e. weights/darknet.53.conv.74
+    parser.add_argument('--weights', type=str, default='weights/yolov3-spp.weights', help='initial weights')
     parser.add_argument('--arc', type=str, default='default', help='yolo architecture')  # defaultpw, uCE, uBCE
     parser.add_argument('--prebias', action='store_true', help='transfer-learn yolo biases prior to training')
     parser.add_argument('--name', default='', help='renames results.txt to results_name.txt if supplied')
@@ -420,6 +418,9 @@ if __name__ == '__main__':
     opt.weights = last if opt.resume else opt.weights
     print(opt)
     device = torch_utils.select_device(opt.device, apex=mixed_precision)
+
+    # scale hyp['obj'] by img_size (evolved at 320)
+    hyp['obj'] *= opt.img_size / 320.
 
     tb_writer = None
     if not opt.evolve:  # Train normally
