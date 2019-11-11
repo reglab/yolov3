@@ -43,6 +43,7 @@ hyp = {'giou': 3.31,  # giou loss gain
 # Overwrite hyp with hyp*.txt (optional)
 f = glob.glob('hyp*.txt')
 if f:
+    print('Reading', f[0])
     for k, v in zip(hyp.keys(), np.loadtxt(f[0])):
         hyp[k] = v
 
