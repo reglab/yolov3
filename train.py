@@ -21,10 +21,13 @@ best = wdir + 'best.pt'
 results_file = 'results.txt'
 
 # Hyperparameters (k-series, 53.3 mAP yolov3-spp-320) https://github.com/ultralytics/yolov3/issues/310
-hyp = {'giou': 3.31,  # giou loss gain
-       'cls': 42.4,  # cls loss gain
+hyp = {#'giou': 3.31,  # giou loss gain
+       #'cls': 42.4,  # cls loss gain
+       'giou': 0.5,
+       'cls': 0.04,
        'cls_pw': 1.0,  # cls BCELoss positive_weight
-       'obj': 40.0,  # obj loss gain (*=img_size/320 * 1.1 if img_size > 320)
+       'obj': 1.43,
+       #'obj': 40.0,  # obj loss gain (*=img_size/320 * 1.1 if img_size > 320)
        'obj_pw': 1.0,  # obj BCELoss positive_weight
        'iou_t': 0.213,  # iou training threshold
        'lr0': 0.00261,  # initial learning rate (SGD=1E-3, Adam=9E-5)
@@ -43,9 +46,10 @@ hyp = {'giou': 3.31,  # giou loss gain
 # Overwrite hyp with hyp*.txt (optional)
 f = glob.glob('hyp*.txt')
 if f:
-    print('Reading', f[0])
+    print('Reading from', f[0])
     for k, v in zip(hyp.keys(), np.loadtxt(f[0])):
         hyp[k] = v
+        print('Set', k, 'to', str(v))
 
 
 def train():
@@ -477,5 +481,4 @@ if __name__ == '__main__':
             # Write mutation results
             print_mutation(hyp, results, opt.bucket)
 
-            # Plot results
-            # plot_evolution_results(hyp)
+      

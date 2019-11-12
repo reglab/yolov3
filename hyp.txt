@@ -1,7 +1,7 @@
-3.31  # giou loss gain
-42.4  # cls loss gain
+0.05  # giou loss gain
+0.04  # cls loss gain
 1.0  # cls BCELoss positive_weight
-40.0  # obj loss gain (*=img_size/320 * 1.1 if img_size > 320)
+1.43  # obj loss gain (*=img_size/320 * 1.1 if img_size > 320)
 1.0  # obj BCELoss positive_weight
 0.213  # iou training threshold
 0.00261  # initial learning rate (SGD=1E-3, Adam=9E-5)
