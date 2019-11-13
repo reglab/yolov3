@@ -37,7 +37,8 @@ pycocotools/*
 results*.txt
 gcp_test*.sh
 
-hyp.txt 
+hyp.txt
+evolve.txt  
 
 # MATLAB GitIgnore -----------------------------------------------------------------------------------------------------
 *.m~
