@@ -333,7 +333,7 @@ def compute_loss(p, targets, model):  # predictions, targets, model
         if nb:  # number of targets
             ps = pi[b, a, gj, gi]  # prediction subset corresponding to targets
             tobj[b, a, gj, gi] = 1.0  # obj
-            ps[:, 2:4] = torch.sigmoid(ps[:, 2:4])  # wh power loss (uncomment)
+            # ps[:, 2:4] = torch.sigmoid(ps[:, 2:4])  # wh power loss (uncomment)
 
             # GIoU
             pxy = torch.sigmoid(ps[:, 0:2])  # pxy = pxy * s - (s - 1) / 2,  s = 1.5  (scale_xy)
@@ -578,14 +578,16 @@ def print_model_biases(model):
 
 def strip_optimizer(f='weights/last.pt'):  # from utils.utils import *; strip_optimizer()
     # Strip optimizer from *.pt files for lighter files (reduced by 2/3 size)
-    x = torch.load(f)
+    x = torch.load(f, map_location=torch.device('cpu'))
     x['optimizer'] = None
+    # x['training_results'] = None  # uncomment to create a backbone
+    # x['epoch'] = -1  # uncomment to create a backbone
     torch.save(x, f)
 
 
 def create_backbone(f='weights/last.pt'):  # from utils.utils import *; create_backbone()
     # create a backbone from a *.pt file
-    x = torch.load(f)
+    x = torch.load(f, map_location=torch.device('cpu'))
     x['optimizer'] = None
     x['training_results'] = None
     x['epoch'] = -1
@@ -864,7 +866,7 @@ def plot_evolution_results(hyp):  # from utils.utils import *; plot_evolution_re
     fig = plt.figure(figsize=(12, 10))
     matplotlib.rc('font', **{'size': 8})
     for i, (k, v) in enumerate(hyp.items()):
-        y = x[:, i + 5]
+        y = x[:, i + 7]
         # mu = (y * weights).sum() / weights.sum()  # best weighted result
         mu = y[f.argmax()]  # best single result
         plt.subplot(4, 5, i + 1)

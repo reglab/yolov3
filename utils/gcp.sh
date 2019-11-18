@@ -32,7 +32,7 @@ python3 test.py --save-json
 # Evolve
 for i in {0..500}
 do
-  python3 train.py --data data/coco.data --img-size 320 --epochs 1 --batch-size 64 --accumulate 1 --evolve --bucket yolov4
+  python3 train.py --data data/coco.data --img-size 512 --epochs 27 --batch-size 32 --accumulate 2 --evolve --weights '' --bucket yolov4
 done
 
 # Git pull
@@ -87,42 +87,27 @@ rm -rf darknet && git clone https://github.com/AlexeyAB/darknet && cd darknet &&
 ./darknet detector train ../supermarket2/supermarket2.data ../yolo_v3_spp_pan_scale.cfg darknet53.conv.74 -map -dont_show # train spp
 ./darknet detector train ../yolov3/data/coco.data ../yolov3-spp.cfg darknet53.conv.74 -map -dont_show # train spp coco
 
-./darknet detector train data/coco.data ../yolov3-spp.cfg darknet53.conv.74 -map -dont_show # train spp
-gsutil cp -r backup/*5000.weights gs://sm6/weights
-sudo shutdown
-
-
-./darknet detector train ../supermarket2/supermarket2.data ../yolov3-tiny-sm2-1cls.cfg yolov3-tiny.conv.15 -map -dont_show # train tiny
-./darknet detector train ../supermarket2/supermarket2.data cfg/yolov3-spp-sm2-1cls.cfg backup/yolov3-spp-sm2-1cls_last.weights  # resume
-python3 train.py --data ../supermarket2/supermarket2.data --cfg ../yolov3-spp-sm2-1cls.cfg --epochs 100 --num-workers 8 --img-size 320 --nosave  # train ultralytics
-python3 test.py --data ../supermarket2/supermarket2.data --weights ../darknet/backup/yolov3-spp-sm2-1cls_5000.weights --cfg cfg/yolov3-spp-sm2-1cls.cfg  # test
-gsutil cp -r backup/*.weights gs://sm6/weights  # weights to bucket
-
-python3 test.py --data ../supermarket2/supermarket2.data --weights weights/yolov3-spp-sm2-1cls_5000.weights --cfg ../yolov3-spp-sm2-1cls.cfg --img-size 320 --conf-thres 0.2  # test
-python3 test.py --data ../supermarket2/supermarket2.data --weights weights/yolov3-spp-sm2-1cls-scalexy_125_5000.weights --cfg ../yolov3-spp-sm2-1cls-scalexy_125.cfg --img-size 320 --conf-thres 0.2  # test
-python3 test.py --data ../supermarket2/supermarket2.data --weights weights/yolov3-spp-sm2-1cls-scalexy_150_5000.weights --cfg ../yolov3-spp-sm2-1cls-scalexy_150.cfg --img-size 320 --conf-thres 0.2  # test
-python3 test.py --data ../supermarket2/supermarket2.data --weights weights/yolov3-spp-sm2-1cls-scalexy_200_5000.weights --cfg ../yolov3-spp-sm2-1cls-scalexy_200.cfg --img-size 320 --conf-thres 0.2  # test
-python3 test.py --data ../supermarket2/supermarket2.data --weights ../darknet/backup/yolov3-spp-sm2-1cls-scalexy_variable_5000.weights --cfg ../yolov3-spp-sm2-1cls-scalexy_variable.cfg --img-size 320 --conf-thres 0.2  # test
-
-python3 train.py --img-size 320 --epochs 27 --batch-size 64 --accumulate 1 --nosave --notest && python3 test.py --weights weights/last.pt --img-size 320 --save-json && sudo shutdown
-
-# Debug/Development
-python3 train.py --data data/coco.data --img-size 320 --single-scale --batch-size 64 --accumulate 1 --epochs 1 --evolve --giou
-python3 test.py --weights weights/last.pt --cfg cfg/yolov3-spp.cfg --img-size 320
-
-gsutil cp evolve.txt gs://ultralytics
-sudo shutdown
-
 #Docker
 sudo docker kill $(sudo docker ps -q)
-sudo docker pull ultralytics/yolov3:v1
+sudo docker pull ultralytics/yolov3:v0
 sudo nvidia-docker run -it --ipc=host --mount type=bind,source="$(pwd)"/coco,target=/usr/src/coco ultralytics/yolov3:v1
 
 clear
 while true
 do
-  python3 train.py --data data/coco.data --img-size 320 --batch-size 64 --accumulate 1 --evolve --epochs 1 --adam --bucket yolov4/adamdefaultpw_coco_1e --device 1
+  python3 train.py --weights '' --prebias --img-size 512 --batch-size 32 --accumulate 2 --evolve --epochs 27 --bucket yolov4/512_coco_27e --device 0
 done
 
-python3 train.py --data data/coco.data --img-size 320 --batch-size 64 --accumulate 1 --epochs 1 --adam --device 1 --prebias
+
+export tag=ultralytics/yolov3:v1 && sudo docker pull $tag && sudo nvidia-docker run -it --ipc=host --mount type=bind,source="$(pwd)"/coco,target=/usr/src/coco $tag python3 train.py --weights '' --epochs 27 --batch-size 32 --accumulate 2 --prebias --bucket yolov4 --name 63 --device 0
+export tag=ultralytics/yolov3:v2 && sudo docker pull $tag && sudo nvidia-docker run -it --ipc=host --mount type=bind,source="$(pwd)"/coco,target=/usr/src/coco $tag python3 train.py --weights '' --epochs 27 --batch-size 32 --accumulate 2 --prebias --bucket yolov4 --name 64 --device 1
+
+
+
 while true; do python3 train.py --data data/coco.data --img-size 320 --batch-size 64 --accumulate 1 --evolve --epochs 1 --adam --bucket yolov4/adamdefaultpw_coco_1e; done
+
+
+
+
+
+
