@@ -878,6 +878,28 @@ def plot_evolution_results(hyp):  # from utils.utils import *; plot_evolution_re
     plt.savefig('evolve.png', dpi=200)
 
 
+def plot_loss(start=0, stop=0):  # from utils.utils import *; plot_loss()
+    # Plot loss from training results files 'results*.txt'
+    # loss is GIoU + Objectness + classification
+    for f in sorted(glob.glob('results*.txt') + glob.glob('../../Downloads/results*.txt')):
+        val_results = np.loadtxt(f, usecols=[12, 13, 14], ndmin=2).T
+        train_results = np.loadtxt(f, usecols=[2, 3, 4], ndmin=2).T
+        for i, results in enumerate([val_results, train_results]):
+            n = results.shape[1]  # number of rows
+            x = range(start, min(stop, n) if stop else n)
+            # sum the values, mask the zeros, take the log 
+            y = np.log(list(map(lambda x: np.nan if x == 0 else x, sum(results[:,x]))))
+            label = 'Val' if i == 0 else 'Train'
+            plt.plot(x, y, marker='.', label=label)
+        
+        plt.title('Loss')
+        plt.xlabel('Epoch')
+        plt.ylabel('log(loss)')
+        plt.legend()
+        
+    plt.savefig('losses.png')
+
+
 def plot_results(start=0, stop=0):  # from utils.utils import *; plot_results()
     # Plot training results files 'results*.txt'
     fig, ax = plt.subplots(2, 5, figsize=(14, 7))
@@ -892,6 +914,7 @@ def plot_results(start=0, stop=0):  # from utils.utils import *; plot_results()
             y = results[i, x]
             if i in [0, 1, 2, 5, 6, 7]:
                 y[y == 0] = np.nan  # dont show zero loss values
+            y = np.log(y) # Log plots 
             ax[i].plot(x, y, marker='.', label=f.replace('.txt', ''))
             ax[i].set_title(s[i])
             if i in [5, 6, 7]:  # share train and val loss y axes
