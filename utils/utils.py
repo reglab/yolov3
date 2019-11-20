@@ -887,11 +887,12 @@ def plot_loss(start=0, stop=0):  # from utils.utils import *; plot_loss()
         for i, results in enumerate([val_results, train_results]):
             n = results.shape[1]  # number of rows
             x = range(start, min(stop, n) if stop else n)
-            # sum the values, mask the zeros, take the log 
-            y = np.log(list(map(lambda x: np.nan if x == 0 else x, sum(results[:,x]))))
+            # sum the values, mask the zeros 
+            y = list(map(lambda x: np.nan if x == 0 else x, sum(results[:,x])))
             label = 'Val' if i == 0 else 'Train'
             plt.plot(x, y, marker='.', label=label)
         
+        plt.yscale('log') # log plot
         plt.title('Loss')
         plt.xlabel('Epoch')
         plt.ylabel('log(loss)')
@@ -914,7 +915,6 @@ def plot_results(start=0, stop=0):  # from utils.utils import *; plot_results()
             y = results[i, x]
             if i in [0, 1, 2, 5, 6, 7]:
                 y[y == 0] = np.nan  # dont show zero loss values
-            y = np.log(y) # Log plots 
             ax[i].plot(x, y, marker='.', label=f.replace('.txt', ''))
             ax[i].set_title(s[i])
             if i in [5, 6, 7]:  # share train and val loss y axes
@@ -923,6 +923,7 @@ def plot_results(start=0, stop=0):  # from utils.utils import *; plot_results()
     fig.tight_layout()
     ax[1].legend()
     fig.savefig('results.png', dpi=200)
+    fig.clear()
 
 
 def plot_results_overlay(start=0, stop=0):  # from utils.utils import *; plot_results_overlay()
