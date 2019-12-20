@@ -58,6 +58,8 @@ def train():
     batch_size = opt.batch_size
     accumulate = opt.accumulate  # effective bs = batch_size * accumulate = 16 * 4 = 64
     weights = opt.weights  # initial training weights
+    eps = opt.eps
+    loss_memory = opt.loss_memory
 
     if 'pw' not in opt.arc:  # remove BCELoss positive weights
         hyp['cls_pw'] = 1.
@@ -228,6 +230,7 @@ def train():
     maps = np.zeros(nc)  # mAP per class
     # torch.autograd.set_detect_anomaly(True)
     results = (0, 0, 0, 0, 0, 0, 0)  # 'P', 'R', 'mAP', 'F1', 'val GIoU', 'val Objectness', 'val Classification'
+    loss_history = np.array([])
     t0 = time.time()
     torch_utils.model_info(model, report='summary')  # 'full' or 'summary'
     print('Using %g dataloader workers' % nw)
@@ -351,8 +354,19 @@ def train():
 
         # Update best mAP
         fitness = sum(results[4:])  # total loss
+        if not (isinstance(fitness, int) or isinstance(fitness, float)):
+            fitness = float('inf')
         if fitness < best_fitness:
             best_fitness = fitness
+
+        # Update loss history
+        if loss_memory:
+            if epoch < loss_memory:
+                loss_history = np.append([fitness], loss_history)
+            else:
+                loss_history = np.roll(loss_history, 1)
+                loss_history[0] = fitness
+            print('Loss history:', loss_history)
 
         # Save training results
         save = (not opt.nosave) or (final_epoch and not opt.evolve) or opt.prebias
@@ -379,6 +393,15 @@ def train():
 
             # Delete checkpoint
             del chkpt
+
+        # Stop training if minimum loss over last loss-memory epochs has not decreased
+        # by eps more than maximum
+        if loss_memory:
+            if epoch > 10 and  not (min(loss_history) < max(loss_history)-eps):
+                print('Minimum loss has not decreased by more than %s in previous %s epochs.' %(eps, loss_memory))
+                print('Last %s validation losses:' %loss_memory, loss_history)
+                print('Ending training.')
+                break
 
         # end epoch ----------------------------------------------------------------------------------------------------
 
@@ -440,6 +463,8 @@ if __name__ == '__main__':
     parser.add_argument('--device', default='', help='device id (i.e. 0 or 0,1 or cpu)')
     parser.add_argument('--adam', action='store_true', help='use adam optimizer')
     parser.add_argument('--var', type=float, help='debug variable')
+    parser.add_argument('--eps', type=float, default=0.01, help='Minimum amount by which loss should drop')
+    parser.add_argument('--loss-memory', type=int, default=False, help='Number of previous epochs over which to compare loss')
     opt = parser.parse_args()
     opt.weights = last if opt.resume else opt.weights
     print(opt)
