@@ -38,7 +38,8 @@ results*.txt
 gcp_test*.sh
 
 hyp.txt
-evolve.txt  
+evolve.txt               
+output/
 
 # MATLAB GitIgnore -----------------------------------------------------------------------------------------------------
 *.m~

@@ -113,7 +113,7 @@ def detect(save_txt=False, save_img=False):
                 # Write results
                 for *xyxy, conf, _, cls in det:
                     if save_txt:  # Write to file
-                        with open(save_path + '.txt', 'a') as file:
+                        with open(save_path.replace('jpg', 'txt'), 'a') as file:
                             file.write(('%g ' * 6 + '\n') % (*xyxy, cls, conf))
 
                     if save_img or view_img:  # Add bbox to image
@@ -143,7 +143,7 @@ def detect(save_txt=False, save_img=False):
                     vid_writer.write(im0)
 
     if save_txt or save_img:
-        print('Results saved to %s' % os.getcwd() + os.sep + out)
+        print('Results saved to %s' % out)
         if platform == 'darwin':  # MacOS
             os.system('open ' + out + ' ' + save_path)
 
@@ -168,4 +168,4 @@ if __name__ == '__main__':
     print(opt)
 
     with torch.no_grad():
-        detect()
+        detect(save_txt=True)
