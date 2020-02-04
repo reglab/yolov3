@@ -1,8 +1,19 @@
 import torch.nn.functional as F
+import os
+import sys
 
-from utils.google_utils import *
-from utils.parse_config import *
-from utils.utils import *
+try:
+    from utils.google_utils import *
+    from utils.parse_config import *
+    from utils.utils import *
+except ModuleNotFoundError:
+    import sys
+    sys.path.append('../yolov3/utils')
+    from google_utils import *
+    from parse_config import *
+    from yolov3.utils.utils import *
+
+
 
 ONNX_EXPORT = False
 

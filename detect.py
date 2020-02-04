@@ -1,12 +1,17 @@
 import argparse
 from sys import platform
 
-from models import *  # set ONNX_EXPORT in models.py
-from utils.datasets import *
-from utils.utils import *
+try:
+    from models import *  # set ONNX_EXPORT in models.py
+    from utils.datasets import *
+    from utils.utils import *
+except ModuleNotFoundError:
+    from yolov3.models import *  # set ONNX_EXPORT in models.py
+    from datasets import *
+    from yolov3.utils.utils import *
 
 
-def detect(save_txt=False, save_img=False):
+def detect(opt, save_txt=False, save_img=False):    
     img_size = (320, 192) if ONNX_EXPORT else opt.img_size  # (320, 192) or (416, 256) or (608, 352) for (height, width)
     out, source, weights, half, view_img = opt.output, opt.source, opt.weights, opt.half, opt.view_img
     webcam = source == '0' or source.startswith('rtsp') or source.startswith('http') or source.endswith('.txt')
@@ -170,4 +175,4 @@ if __name__ == '__main__':
     print(opt)
 
     with torch.no_grad():
-        detect()
+        detect(opt, save_txt=True)
