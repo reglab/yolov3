@@ -1,4 +1,4 @@
-# Start from Nvidia PyTorch image https://ngc.nvidia.com/catalog/containers/nvidia:pytorch
+# Start FROM Nvidia PyTorch image https://ngc.nvidia.com/catalog/containers/nvidia:pytorch
 FROM nvcr.io/nvidia/pytorch:19.10-py3
 
 # Install dependencies (pip or conda)
@@ -36,33 +36,24 @@ WORKDIR /usr/src/app
 COPY . /usr/src/app
 
 # Copy weights
-#RUN python3 -c "from utils.google_utils import *; \
-#    gdrive_download(id='18xqvs_uwAqfTXp-LJCYLYNHBOcrwbrp0', name='weights/darknet53.conv.74'); \
-#    gdrive_download(id='1oPCHKsM2JpM-zgyepQciGli9X0MTsJCO', name='weights/yolov3-spp.weights'); \
-#    gdrive_download(id='1vFlbJ_dXPvtwaLLOu-twnjK4exdFiQ73', name='weights/yolov3-spp.pt)"
+#RUN python3 -c "from models import *; \
+#attempt_download('weights/yolov3.pt'); \
+#attempt_download('weights/yolov3-spp.pt')"
 
 
 # ---------------------------------------------------  Extras Below  ---------------------------------------------------
 
-# Build
-# rm -rf yolov3  # Warning: remove existing
-# git clone https://github.com/ultralytics/yolov3 && cd yolov3 && python3 detect.py
-# sudo docker image prune -af && sudo docker build -t ultralytics/yolov3:v0 .
+# Build and Push
+# export t=ultralytics/yolov3:v0 && sudo docker build -t $t . && sudo docker push $t
 
 # Run
 # sudo nvidia-docker run --ipc=host ultralytics/yolov3:v0 python3 detect.py
 
-# Run with local directory access
-# sudo nvidia-docker run --ipc=host --mount type=bind,source="$(pwd)"/coco,target=/usr/src/coco ultralytics/yolov3:v0 python3 train.py
-
 # Pull and Run with local directory access
-# export tag=ultralytics/yolov3:v0 && sudo docker pull $tag && sudo nvidia-docker run -it --ipc=host --mount type=bind,source="$(pwd)"/coco,target=/usr/src/coco $tag python3 train.py
-
-# Build and Push
-# export tag=ultralytics/yolov3:v0 && sudo docker build -t $tag . && sudo docker push $tag
+# export t=ultralytics/yolov3:v0 && sudo docker pull $t && sudo nvidia-docker run -it --ipc=host -v "$(pwd)"/coco:/usr/src/coco $t
 
 # Kill all
-# sudo docker kill $(sudo docker ps -q)
+# sudo docker kill "$(sudo docker ps -q)"
 
 # Run bash for loop
 # sudo nvidia-docker run --ipc=host ultralytics/yolov3:v0 while true; do python3 train.py --evolve; done

@@ -20,31 +20,31 @@ last = wdir + 'last.pt'
 best = wdir + 'best.pt'
 results_file = 'results.txt'
 
+# Hyperparameters (results68: 59.2 mAP@0.5 yolov3-spp-416) https://github.com/ultralytics/yolov3/issues/310
 
-# Hyperparameters (k-series, 57.7 mAP yolov3-spp-416) https://github.com/ultralytics/yolov3/issues/310
-hyp = {'giou': 3.31,  # giou loss gain
-       'cls': 42.4,  # cls loss gain
+hyp = {'giou': 3.54,  # giou loss gain
+       'cls': 37.4,  # cls loss gain
        'cls_pw': 1.0,  # cls BCELoss positive_weight
-       'obj': 52.0,  # obj loss gain (*=img_size/320 if img_size != 320)
+       'obj': 64.3,  # obj loss gain (*=img_size/416 if img_size != 416)
        'obj_pw': 1.0,  # obj BCELoss positive_weight
-       'iou_t': 0.213,  # iou training threshold
-       'lr0': 0.00261,  # initial learning rate (SGD=1E-3, Adam=9E-5)
+       'iou_t': 0.225,  # iou training threshold
+       'lr0': 0.00579,  # initial learning rate (SGD=1E-3, Adam=9E-5)
        'lrf': -4.,  # final LambdaLR learning rate = lr0 * (10 ** lrf)
-       'momentum': 0.949,  # SGD momentum
-       'weight_decay': 0.000489,  # optimizer weight decay
+       'momentum': 0.937,  # SGD momentum
+       'weight_decay': 0.000484,  # optimizer weight decay
        'fl_gamma': 0.5,  # focal loss gamma
-       'hsv_h': 0.0103,  # image HSV-Hue augmentation (fraction)
-       'hsv_s': 0.691,  # image HSV-Saturation augmentation (fraction)
-       'hsv_v': 0.433,  # image HSV-Value augmentation (fraction)
-       'degrees': 1.43,  # image rotation (+/- deg)
-       'translate': 0.0663,  # image translation (+/- fraction)
-       'scale': 0.11,  # image scale (+/- gain)
-       'shear': 0.384}  # image shear (+/- deg)
+       'hsv_h': 0.0138,  # image HSV-Hue augmentation (fraction)
+       'hsv_s': 0.678,  # image HSV-Saturation augmentation (fraction)
+       'hsv_v': 0.36,  # image HSV-Value augmentation (fraction)
+       'degrees': 1.98,  # image rotation (+/- deg)
+       'translate': 0.05,  # image translation (+/- fraction)
+       'scale': 0.05,  # image scale (+/- gain)
+       'shear': 0.641}  # image shear (+/- deg)
 
 # Overwrite hyp with hyp*.txt (optional)
 f = glob.glob('hyp*.txt')
 if f:
-    print('Reading from', f[0])
+    print('Using %s' % f[0])
     for k, v in zip(hyp.keys(), np.loadtxt(f[0])):
         hyp[k] = v
         print('Set', k, 'to', str(v))
@@ -58,6 +58,8 @@ def train():
     batch_size = opt.batch_size
     accumulate = opt.accumulate  # effective bs = batch_size * accumulate = 16 * 4 = 64
     weights = opt.weights  # initial training weights
+    eps = opt.eps
+    loss_memory = opt.loss_memory
 
     if 'pw' not in opt.arc:  # remove BCELoss positive weights
         hyp['cls_pw'] = 1.
@@ -65,17 +67,16 @@ def train():
 
     # Initialize
     init_seeds()
-    multi_scale = opt.multi_scale
-
-    if multi_scale:
-        img_sz_min = round(img_size / 32 / 1.5) + 1
-        img_sz_max = round(img_size / 32 * 1.5) - 1
+    if opt.multi_scale:
+        img_sz_min = round(img_size / 32 / 1.5)
+        img_sz_max = round(img_size / 32 * 1.5)
         img_size = img_sz_max * 32  # initiate with maximum multi_scale size
         print('Using multi-scale %g - %g' % (img_sz_min * 32, img_size))
 
     # Configure run
     data_dict = parse_data_cfg(data)
     train_path = data_dict['train']
+    test_path = data_dict['valid']
     nc = int(data_dict['classes'])  # number of classes
 
     # Remove previous results
@@ -101,6 +102,9 @@ def train():
     optimizer.add_param_group({'params': pg1, 'weight_decay': hyp['weight_decay']})  # add pg1 with weight_decay
     del pg0, pg1
 
+    # https://github.com/alphadl/lookahead.pytorch
+    # optimizer = torch_utils.Lookahead(optimizer, k=5, alpha=0.5)
+
     cutoff = -1  # backbone reaches to cutoff layer
     start_epoch = 0
     best_fitness = float('inf')
@@ -110,11 +114,13 @@ def train():
         chkpt = torch.load(weights, map_location=device)
 
         # load model
-        # if opt.transfer:
-        chkpt['model'] = {k: v for k, v in chkpt['model'].items() if model.state_dict()[k].numel() == v.numel()}
-        model.load_state_dict(chkpt['model'], strict=False)
-        # else:
-        #    model.load_state_dict(chkpt['model'])
+        try:
+            chkpt['model'] = {k: v for k, v in chkpt['model'].items() if model.state_dict()[k].numel() == v.numel()}
+            model.load_state_dict(chkpt['model'], strict=False)
+        except KeyError as e:
+            s = "%s is not compatible with %s. Specify --weights '' or specify a --cfg compatible with %s. " \
+                "See https://github.com/ultralytics/yolov3/issues/657" % (opt.weights, opt.cfg, opt.weights)
+            raise KeyError(s) from e
 
         # load optimizer
         if chkpt['optimizer'] is not None:
@@ -176,43 +182,58 @@ def train():
         model, optimizer = amp.initialize(model, optimizer, opt_level='O1', verbosity=0)
 
     # Initialize distributed training
-    if torch.cuda.device_count() > 1:
+    if device.type != 'cpu' and torch.cuda.device_count() > 1:
         dist.init_process_group(backend='nccl',  # 'distributed backend'
                                 init_method='tcp://127.0.0.1:9999',  # distributed training init method
                                 world_size=1,  # number of nodes for distributed training
                                 rank=0)  # distributed training node rank
-        model = torch.nn.parallel.DistributedDataParallel(model)
+        model = torch.nn.parallel.DistributedDataParallel(model, find_unused_parameters=True)
         model.yolo_layers = model.module.yolo_layers  # move yolo layer indices to top level
 
     # Dataset
-    dataset = LoadImagesAndLabels(train_path,
-                                  img_size,
-                                  batch_size,
+    dataset = LoadImagesAndLabels(train_path, img_size, batch_size,
                                   augment=True,
                                   hyp=hyp,  # augmentation hyperparameters
                                   rect=opt.rect,  # rectangular training
                                   image_weights=opt.img_weights,
-                                  cache_labels=True if epochs > 10 else False,
-                                  cache_images=False if opt.prebias else opt.cache_images)
+                                  cache_labels=epochs > 10,
+                                  cache_images=opt.cache_images and not opt.prebias)
 
     # Dataloader
+    batch_size = min(batch_size, len(dataset))
+    nw = min([os.cpu_count(), batch_size if batch_size > 1 else 0, 8])  # number of workers
     dataloader = torch.utils.data.DataLoader(dataset,
                                              batch_size=batch_size,
-                                             num_workers=min([os.cpu_count(), batch_size, 16]),
+                                             num_workers=nw,
                                              shuffle=not opt.rect,  # Shuffle=True unless rectangular training is used
                                              pin_memory=True,
                                              collate_fn=dataset.collate_fn)
 
+    # Test Dataloader
+    if not opt.prebias:
+        testloader = torch.utils.data.DataLoader(LoadImagesAndLabels(test_path, opt.img_size, batch_size,
+                                                                     hyp=hyp,
+                                                                     rect=True,
+                                                                     cache_labels=True,
+                                                                     cache_images=opt.cache_images),
+                                                 batch_size=batch_size,
+                                                 num_workers=nw,
+                                                 pin_memory=True,
+                                                 collate_fn=dataset.collate_fn)
+
     # Start training
+    nb = len(dataloader)
     model.nc = nc  # attach number of classes to model
     model.arc = opt.arc  # attach yolo architecture
     model.hyp = hyp  # attach hyperparameters to model
-    # model.class_weights = labels_to_class_weights(dataset.labels, nc).to(device)  # attach class weights
-    torch_utils.model_info(model, report='summary')  # 'full' or 'summary'
-    nb = len(dataloader)
+    model.class_weights = labels_to_class_weights(dataset.labels, nc).to(device)  # attach class weights
     maps = np.zeros(nc)  # mAP per class
+    # torch.autograd.set_detect_anomaly(True)
     results = (0, 0, 0, 0, 0, 0, 0)  # 'P', 'R', 'mAP', 'F1', 'val GIoU', 'val Objectness', 'val Classification'
+    loss_history = np.array([])
     t0 = time.time()
+    torch_utils.model_info(model, report='summary')  # 'full' or 'summary'
+    print('Using %g dataloader workers' % nw)
     print('Starting %s for %g epochs...' % ('prebias' if opt.prebias else 'training', epochs))
     for epoch in range(start_epoch, epochs):  # epoch ------------------------------------------------------------------
         model.train()
@@ -235,11 +256,11 @@ def train():
         pbar = tqdm(enumerate(dataloader), total=nb)  # progress bar
         for i, (imgs, targets, paths, _) in pbar:  # batch -------------------------------------------------------------
             ni = i + nb * epoch  # number integrated batches (since train start)
-            imgs = imgs.to(device)
+            imgs = imgs.to(device).float() / 255.0  # uint8 to float32, 0 - 255 to 0.0 - 1.0
             targets = targets.to(device)
 
             # Multi-Scale training
-            if multi_scale:
+            if opt.multi_scale:
                 if ni / accumulate % 10 == 0:  #  adjust (67% - 150%) every 10 batches
                     img_size = random.randrange(img_sz_min, img_sz_max + 1) * 32
                 sf = img_size / max(imgs.shape[2:])  # scale factor
@@ -305,21 +326,23 @@ def train():
         final_epoch = epoch + 1 == epochs
         if opt.prebias:
             print_model_biases(model)
-        else:
-            # Calculate mAP (always test final epoch, skip first 10 if opt.nosave)
-            if not (opt.notest or (opt.nosave and epoch < 10)) or final_epoch:
-                with torch.no_grad():
-                    results, maps = test.test(cfg,
-                                              data,
-                                              batch_size=batch_size,
-                                              img_size=opt.img_size,
-                                              model=model,
-                                              conf_thres=0.001 if final_epoch and epoch > 0 else 0.1,  # 0.1 for speed
-                                              save_json=final_epoch and epoch > 0 and 'coco.data' in data)
+        elif not opt.notest or final_epoch:  # Calculate mAP
+            with torch.no_grad():
+                is_coco = any([x in data for x in ['coco.data', 'coco2014.data', 'coco2017.data']]) and model.nc == 80
+                results, maps = test.test(cfg,
+                                          data,
+                                          batch_size=batch_size,
+                                          img_size=opt.img_size,
+                                          model=model,
+                                          conf_thres=0.001 if final_epoch else 0.1,  # 0.1 for speed
+                                          save_json=final_epoch and is_coco,
+                                          dataloader=testloader)
 
         # Write epoch results
         with open(results_file, 'a') as f:
             f.write(s + '%10.3g' * 7 % results + '\n')  # P, R, mAP, F1, test_losses=(GIoU, obj, cls)
+        if len(opt.name) and opt.bucket and not opt.prebias:
+            os.system('gsutil cp results.txt gs://%s/results%s.txt' % (opt.bucket, opt.name))
 
         # Write Tensorboard results
         if tb_writer:
@@ -331,8 +354,19 @@ def train():
 
         # Update best mAP
         fitness = sum(results[4:])  # total loss
+        if not (isinstance(fitness, int) or isinstance(fitness, float)):
+            fitness = float('inf')
         if fitness < best_fitness:
             best_fitness = fitness
+
+        # Update loss history
+        if loss_memory:
+            if epoch < loss_memory:
+                loss_history = np.append([fitness], loss_history)
+            else:
+                loss_history = np.roll(loss_history, 1)
+                loss_history[0] = fitness
+            print('Loss history:', loss_history)
 
         # Save training results
         save = (not opt.nosave) or (final_epoch and not opt.evolve) or opt.prebias
@@ -360,6 +394,15 @@ def train():
             # Delete checkpoint
             del chkpt
 
+        # Stop training if minimum loss over last loss-memory epochs has not decreased
+        # by eps more than maximum
+        if loss_memory:
+            if epoch > 10 and  not (min(loss_history) < max(loss_history)-eps):
+                print('Minimum loss has not decreased by more than %s in previous %s epochs.' %(eps, loss_memory))
+                print('Last %s validation losses:' %loss_memory, loss_history)
+                print('Ending training.')
+                break
+
         # end epoch ----------------------------------------------------------------------------------------------------
 
     # end training
@@ -384,19 +427,24 @@ def train():
 def prebias():
     # trains output bias layers for 1 epoch and creates new backbone
     if opt.prebias:
+        a = opt.img_weights  # save settings
+        opt.img_weights = False  # disable settings
+
         train()  # transfer-learn yolo biases for 1 epoch
         create_backbone(last)  # saved results as backbone.pt
+
         opt.weights = wdir + 'backbone.pt'  # assign backbone
         opt.prebias = False  # disable prebias
+        opt.img_weights = a  # reset settings
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--epochs', type=int, default=273)  # 500200 batches at bs 16, 117263 images = 273 epochs
-    parser.add_argument('--batch-size', type=int, default=32)  # effective bs = batch_size * accumulate = 16 * 4 = 64
-    parser.add_argument('--accumulate', type=int, default=2, help='batches to accumulate before optimizing')
-    parser.add_argument('--cfg', type=str, default='cfg/yolov3-spp.cfg', help='cfg file path')
-    parser.add_argument('--data', type=str, default='data/coco.data', help='*.data file path')
+    parser.add_argument('--batch-size', type=int, default=16)  # effective bs = batch_size * accumulate = 16 * 4 = 64
+    parser.add_argument('--accumulate', type=int, default=4, help='batches to accumulate before optimizing')
+    parser.add_argument('--cfg', type=str, default='cfg/yolov3-spp.cfg', help='*.cfg path')
+    parser.add_argument('--data', type=str, default='data/coco2017.data', help='*.data path')
     parser.add_argument('--multi-scale', action='store_true', help='adjust (67% - 150%) img_size every 10 batches')
     parser.add_argument('--img-size', type=int, default=416, help='inference size (pixels)')
     parser.add_argument('--rect', action='store_true', help='rectangular training')
@@ -408,17 +456,21 @@ if __name__ == '__main__':
     parser.add_argument('--bucket', type=str, default='', help='gsutil bucket')
     parser.add_argument('--img-weights', action='store_true', help='select training images by weight')
     parser.add_argument('--cache-images', action='store_true', help='cache images for faster training')
-    parser.add_argument('--weights', type=str, default='weights/yolov3-spp.weights', help='initial weights')
+    parser.add_argument('--weights', type=str, default='weights/ultralytics68.pt', help='initial weights')
     parser.add_argument('--arc', type=str, default='default', help='yolo architecture')  # defaultpw, uCE, uBCE
     parser.add_argument('--prebias', action='store_true', help='transfer-learn yolo biases prior to training')
     parser.add_argument('--name', default='', help='renames results.txt to results_name.txt if supplied')
-    parser.add_argument('--device', default='', help='device id (i.e. 0 or 0,1) or cpu')
+    parser.add_argument('--device', default='', help='device id (i.e. 0 or 0,1 or cpu)')
     parser.add_argument('--adam', action='store_true', help='use adam optimizer')
     parser.add_argument('--var', type=float, help='debug variable')
+    parser.add_argument('--eps', type=float, default=0.01, help='Minimum amount by which loss should drop')
+    parser.add_argument('--loss-memory', type=int, default=False, help='Number of previous epochs over which to compare loss')
     opt = parser.parse_args()
     opt.weights = last if opt.resume else opt.weights
     print(opt)
-    device = torch_utils.select_device(opt.device, apex=mixed_precision)
+    device = torch_utils.select_device(opt.device, apex=mixed_precision, batch_size=opt.batch_size)
+    if device.type == 'cpu':
+        mixed_precision = False
 
     # scale hyp['obj'] by img_size (evolved at 416)
     hyp['obj'] *= opt.img_size / 416.
@@ -446,7 +498,7 @@ if __name__ == '__main__':
             if os.path.exists('evolve.txt'):  # if evolve.txt exists: select best hyps and mutate
                 # Select parent(s)
                 x = np.loadtxt('evolve.txt', ndmin=2)
-                parent = 'weighted'  # parent selection method: 'single' or 'weighted'
+                parent = 'single'  # parent selection method: 'single' or 'weighted'
                 if parent == 'single' or len(x) == 1:
                     x = x[fitness(x).argmax()]
                 elif parent == 'weighted':  # weighted combination
@@ -459,9 +511,10 @@ if __name__ == '__main__':
 
                 # Mutate
                 np.random.seed(int(time.time()))
-                s = [.2, .2, .2, .2, .2, .2, .2, .0, .02, .2, .2, .2, .2, .2, .2, .2, .2, .2]  # sigmas
+                s = np.random.random() * 0.3  # sigma
+                g = [1, 1, 1, 1, 1, 1, 1, 0, .1, 1, 1, 1, 1, 1, 1, 1, 1, 1]  # gains
                 for i, k in enumerate(hyp.keys()):
-                    x = (np.random.randn(1) * s[i] + 1) ** 2.0  # plt.hist(x.ravel(), 300)
+                    x = (np.random.randn() * s * g[i] + 1) ** 2.0  # plt.hist(x.ravel(), 300)
                     hyp[k] *= float(x)  # vary by sigmas
 
             # Clip to limits
@@ -476,5 +529,3 @@ if __name__ == '__main__':
 
             # Write mutation results
             print_mutation(hyp, results, opt.bucket)
-
-      

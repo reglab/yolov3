@@ -1,8 +1,19 @@
 import torch.nn.functional as F
+import os
+import sys
 
-from utils.google_utils import *
-from utils.parse_config import *
-from utils.utils import *
+try:
+    from utils.google_utils import *
+    from utils.parse_config import *
+    from utils.utils import *
+except ModuleNotFoundError:
+    import sys
+    sys.path.append('../yolov3/utils')
+    from google_utils import *
+    from parse_config import *
+    from yolov3.utils.utils import *
+
+
 
 ONNX_EXPORT = False
 
@@ -22,27 +33,29 @@ def create_modules(module_defs, img_size, arc):
         if mdef['type'] == 'convolutional':
             bn = int(mdef['batch_normalize'])
             filters = int(mdef['filters'])
-            kernel_size = int(mdef['size'])
+            size = int(mdef['size'])
             stride = int(mdef['stride']) if 'stride' in mdef else (int(mdef['stride_y']), int(mdef['stride_x']))
-            pad = (kernel_size - 1) // 2 if int(mdef['pad']) else 0
+            pad = (size - 1) // 2 if int(mdef['pad']) else 0
             modules.add_module('Conv2d', nn.Conv2d(in_channels=output_filters[-1],
                                                    out_channels=filters,
-                                                   kernel_size=kernel_size,
+                                                   kernel_size=size,
                                                    stride=stride,
                                                    padding=pad,
+                                                   groups=int(mdef['groups']) if 'groups' in mdef else 1,
                                                    bias=not bn))
             if bn:
                 modules.add_module('BatchNorm2d', nn.BatchNorm2d(filters, momentum=0.1))
             if mdef['activation'] == 'leaky':  # TODO: activation study https://github.com/ultralytics/yolov3/issues/441
                 modules.add_module('activation', nn.LeakyReLU(0.1, inplace=True))
                 # modules.add_module('activation', nn.PReLU(num_parameters=1, init=0.10))
-                # modules.add_module('activation', Swish())
+            elif mdef['activation'] == 'swish':
+                modules.add_module('activation', Swish())
 
         elif mdef['type'] == 'maxpool':
-            kernel_size = int(mdef['size'])
+            size = int(mdef['size'])
             stride = int(mdef['stride'])
-            maxpool = nn.MaxPool2d(kernel_size=kernel_size, stride=stride, padding=int((kernel_size - 1) // 2))
-            if kernel_size == 2 and stride == 1:  # yolov3-tiny
+            maxpool = nn.MaxPool2d(kernel_size=size, stride=stride, padding=int((size - 1) // 2))
+            if size == 2 and stride == 1:  # yolov3-tiny
                 modules.add_module('ZeroPad2d', nn.ZeroPad2d((0, 1, 0, 1)))
                 modules.add_module('MaxPool2d', maxpool)
             else:
@@ -82,9 +95,9 @@ def create_modules(module_defs, img_size, arc):
                 if arc == 'defaultpw' or arc == 'Fdefaultpw':  # default with positive weights
                     b = [-4, -3.6]  # obj, cls
                 elif arc == 'default':  # default no pw (40 cls, 80 obj)
-                    b = [-5.5, -4.0]
+                    b = [-5.5, -5.0]
                 elif arc == 'uBCE':  # unified BCE (80 classes)
-                    b = [0, -8.5]
+                    b = [0, -9.0]
                 elif arc == 'uCE':  # unified CE (1 background + 80 classes)
                     b = [10, -0.1]
                 elif arc == 'Fdefault':  # Focal default no pw (28 cls, 21 obj, no pw)
@@ -113,18 +126,29 @@ def create_modules(module_defs, img_size, arc):
     return module_list, routs
 
 
-class Swish(nn.Module):
-    def __init__(self):
-        super().__init__()
+class SwishImplementation(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, i):
+        ctx.save_for_backward(i)
+        return i * torch.sigmoid(i)
 
+    @staticmethod
+    def backward(ctx, grad_output):
+        sigmoid_i = torch.sigmoid(ctx.saved_variables[0])
+        return grad_output * (sigmoid_i * (1 + ctx.saved_variables[0] * (1 - sigmoid_i)))
+
+
+class MemoryEfficientSwish(nn.Module):
+    def forward(self, x):
+        return SwishImplementation.apply(x)
+
+
+class Swish(nn.Module):
     def forward(self, x):
         return x.mul_(torch.sigmoid(x))
 
 
 class Mish(nn.Module):  # https://github.com/digantamisra98/Mish
-    def __init__(self):
-        super().__init__()
-
     def forward(self, x):
         return x.mul_(F.softplus(x).tanh())
 
@@ -150,7 +174,7 @@ class YOLOLayer(nn.Module):
         if ONNX_EXPORT:
             bs = 1  # batch size
         else:
-            bs, ny, nx = p.shape[0], p.shape[-2], p.shape[-1]
+            bs, _, ny, nx = p.shape  # bs, 255, 13, 13
             if (self.nx, self.ny) != (nx, ny):
                 create_grids(self, img_size, (nx, ny), p.device, p.dtype)
 
@@ -162,18 +186,19 @@ class YOLOLayer(nn.Module):
 
         elif ONNX_EXPORT:
             # Constants CAN NOT BE BROADCAST, ensure correct shape!
-            ngu = self.ng.repeat((1, self.na * self.nx * self.ny, 1))
-            grid_xy = self.grid_xy.repeat((1, self.na, 1, 1, 1)).view((1, -1, 2))
-            anchor_wh = self.anchor_wh.repeat((1, 1, self.nx, self.ny, 1)).view((1, -1, 2)) / ngu
+            m = self.na * self.nx * self.ny
+            ngu = self.ng.repeat((1, m, 1))
+            grid_xy = self.grid_xy.repeat((1, self.na, 1, 1, 1)).view(1, m, 2)
+            anchor_wh = self.anchor_wh.repeat((1, 1, self.nx, self.ny, 1)).view(1, m, 2) / ngu
 
-            p = p.view(-1, 5 + self.nc)
+            p = p.view(m, 5 + self.nc)
             xy = torch.sigmoid(p[..., 0:2]) + grid_xy[0]  # x, y
             wh = torch.exp(p[..., 2:4]) * anchor_wh[0]  # width, height
             p_conf = torch.sigmoid(p[:, 4:5])  # Conf
-            p_cls = F.softmax(p[:, 5:85], 1) * p_conf  # SSD-like conf
+            p_cls = F.softmax(p[:, 5:5 + self.nc], 1) * p_conf  # SSD-like conf
             return torch.cat((xy / ngu[0], wh, p_conf, p_cls), 1).t()
 
-            # p = p.view(1, -1, 5 + self.nc)
+            # p = p.view(1, m, 5 + self.nc)
             # xy = torch.sigmoid(p[..., 0:2]) + grid_xy  # x, y
             # wh = torch.exp(p[..., 2:4]) * anchor_wh  # width, height
             # p_conf = torch.sigmoid(p[..., 4:5])  # Conf
@@ -255,7 +280,7 @@ class Darknet(nn.Module):
         elif ONNX_EXPORT:
             output = torch.cat(output, 1)  # cat 3 layers 85 x (507, 2028, 8112) to 85 x 10647
             nc = self.module_list[self.yolo_layers[0]].nc  # number of classes
-            return output[5:5 + nc].t(), output[:4].t()  # ONNX scores, boxes
+            return output[5:5 + nc].t(), output[0:4].t()  # ONNX scores, boxes
         else:
             io, p = list(zip(*output))  # inference output, training output
             return torch.cat(io, 1), p
@@ -412,33 +437,29 @@ def convert(cfg='cfg/yolov3-spp.cfg', weights='weights/yolov3-spp.weights'):
 
 def attempt_download(weights):
     # Attempt to download pretrained weights if not found locally
+    msg = weights + ' missing, try downloading from https://drive.google.com/open?id=1LezFG5g3BCW6iYaV89B2i64cqEUZD7e0'
 
-    msg = weights + ' missing, download from https://drive.google.com/drive/folders/1uxgUBemJVw9wZsdpboYbzUN4bcRhsuAI'
     if weights and not os.path.isfile(weights):
+        d = {'yolov3-spp.weights': '16lYS4bcIdM2HdmyJBVDOvt3Trx6N3W2R',
+             'yolov3.weights': '1uTlyDWlnaqXcsKOktP5aH_zRDbfcDp-y',
+             'yolov3-tiny.weights': '1CCF-iNIIkYesIDzaPvdwlcf7H9zSsKZQ',
+             'yolov3-spp.pt': '1f6Ovy3BSq2wYq4UfvFUpxJFNDFfrIDcR',
+             'yolov3.pt': '1SHNFyoe5Ni8DajDNEqgB2oVKBb_NoEad',
+             'yolov3-tiny.pt': '10m_3MlpQwRtZetQxtksm9jqHrPTHZ6vo',
+             'darknet53.conv.74': '1WUVBid-XuoUBmvzBVUCBl_ELrzqwA8dJ',
+             'yolov3-tiny.conv.15': '1Bw0kCpplxUqyRYAJr9RY9SGnOJbo9nEj',
+             'ultralytics49.pt': '158g62Vs14E3aj7oPVPuEnNZMKFNgGyNq',
+             'ultralytics68.pt': '1Jm8kqnMdMGUUxGo8zMFZMJ0eaPwLkxSG'}
+
         file = Path(weights).name
+        if file in d:
+            r = gdrive_download(id=d[file], name=weights)
+        else:  # download from pjreddie.com
+            url = 'https://pjreddie.com/media/files/' + file
+            print('Downloading ' + url)
+            r = os.system('curl -f ' + url + ' -o ' + weights)
 
-        if file == 'yolov3-spp.weights':
-            gdrive_download(id='1oPCHKsM2JpM-zgyepQciGli9X0MTsJCO', name=weights)
-        elif file == 'yolov3-spp.pt':
-            gdrive_download(id='1vFlbJ_dXPvtwaLLOu-twnjK4exdFiQ73', name=weights)
-        elif file == 'yolov3.pt':
-            gdrive_download(id='11uy0ybbOXA2hc-NJkJbbbkDwNX1QZDlz', name=weights)
-        elif file == 'yolov3-tiny.pt':
-            gdrive_download(id='1qKSgejNeNczgNNiCn9ZF_o55GFk1DjY_', name=weights)
-        elif file == 'darknet53.conv.74':
-            gdrive_download(id='18xqvs_uwAqfTXp-LJCYLYNHBOcrwbrp0', name=weights)
-        elif file == 'yolov3-tiny.conv.15':
-            gdrive_download(id='140PnSedCsGGgu3rOD6Ez4oI6cdDzerLC', name=weights)
-        elif file == 'ultralytics49.pt':
-            gdrive_download(id='1GKy8hr0h41VlVX2QqURO9re7yKXhaPK7', name=weights)
-
-        else:
-            try:  # download from pjreddie.com
-                url = 'https://pjreddie.com/media/files/' + file
-                print('Downloading ' + url)
-                os.system('curl -f ' + url + ' -o ' + weights)
-            except IOError:
-                print(msg)
-                os.system('rm ' + weights)  # remove partial downloads
-
-        assert os.path.exists(weights), msg  # download missing weights from Google Drive
+        # Error check
+        if not (r == 0 and os.path.exists(weights) and os.path.getsize(weights) > 1E6):  # weights exist and > 1MB
+            os.system('rm ' + weights)  # remove partial downloads
+            raise Exception(msg)
