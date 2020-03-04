@@ -428,7 +428,7 @@ def main(opt):
 
 
     # Overwrite hyp with hyp*.txt (optional)
-    f = glob.glob('hyp*.txt')
+    f = glob.glob(opt.yolo_path + 'hyp*.txt')
     if f:
         print('Using %s' % f[0])
         for k, v in zip(hyp.keys(), np.loadtxt(f[0])):
