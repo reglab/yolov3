@@ -997,10 +997,11 @@ def plot_evolution_results(hyp):  # from utils.utils import *; plot_evolution_re
     fig.tight_layout()
     plt.savefig('evolve.png', dpi=200)
 
-def plot_loss(start=0, stop=0):  # from utils.utils import *; plot_loss()
+def plot_loss(start=0, stop=0, yolo_path='', saveas='losses.png'):  # from utils.utils import *; plot_loss()
     # Plot loss from training results files 'results*.txt'
     # loss is GIoU + Objectness + classification
-    for f in sorted(glob.glob('results*.txt') + glob.glob('../../Downloads/results*.txt')):
+    plt.clf()
+    for f in sorted(glob.glob(yolo_path + 'results*.txt')):
         val_results = np.loadtxt(f, usecols=[12, 13, 14], ndmin=2).T
         train_results = np.loadtxt(f, usecols=[2, 3, 4], ndmin=2).T
         for i, results in enumerate([val_results, train_results]):
@@ -1017,7 +1018,7 @@ def plot_loss(start=0, stop=0):  # from utils.utils import *; plot_loss()
         plt.ylabel('log(loss)')
         plt.legend()
 
-    plt.savefig('losses.png')
+    plt.savefig(saveas)
 
 
 def plot_results_overlay(start=0, stop=0):  # from utils.utils import *; plot_results_overlay()
@@ -1043,7 +1044,7 @@ def plot_results_overlay(start=0, stop=0):  # from utils.utils import *; plot_re
         fig.savefig(f.replace('.txt', '.png'), dpi=200)
 
 
-def plot_results(start=0, stop=0, bucket='', id=()):  # from utils.utils import *; plot_results()
+def plot_results(start=0, stop=0, bucket='', id=(), yolo_path='', saveas='results.png'):  # from utils.utils import *; plot_results()
     # Plot training results files 'results*.txt'
     fig, ax = plt.subplots(2, 5, figsize=(14, 7))
     ax = ax.ravel()
@@ -1053,7 +1054,7 @@ def plot_results(start=0, stop=0, bucket='', id=()):  # from utils.utils import 
         os.system('rm -rf storage.googleapis.com')
         files = ['https://storage.googleapis.com/%s/results%g.txt' % (bucket, x) for x in id]
     else:
-        files = glob.glob('results*.txt') + glob.glob('../../Downloads/results*.txt')
+        files = glob.glob(yolo_path + 'results*.txt')
     for f in sorted(files):
         results = np.loadtxt(f, usecols=[2, 3, 4, 8, 9, 12, 13, 14, 10, 11], ndmin=2).T
         n = results.shape[1]  # number of rows
@@ -1070,4 +1071,4 @@ def plot_results(start=0, stop=0, bucket='', id=()):  # from utils.utils import 
 
     fig.tight_layout()
     ax[1].legend()
-    fig.savefig('results.png', dpi=200)
+    fig.savefig(saveas, dpi=200)
