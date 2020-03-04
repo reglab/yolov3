@@ -4,53 +4,21 @@ import torch.distributed as dist
 import torch.optim as optim
 import torch.optim.lr_scheduler as lr_scheduler
 
-import test  # import test.py to get mAP after each epoch
-from models import *
-from utils.datasets import *
-from utils.utils import *
 
-mixed_precision = True
-try:  # Mixed precision training https://github.com/NVIDIA/apex
-    from apex import amp
-except:
-    mixed_precision = False  # not installed
-
-wdir = 'weights' + os.sep  # weights dir
-last = wdir + 'last.pt'
-best = wdir + 'best.pt'
-results_file = 'results.txt'
-
-# Hyperparameters (results68: 59.9 mAP@0.5 yolov3-spp-416) https://github.com/ultralytics/yolov3/issues/310
-
-hyp = {'giou': 3.54,  # giou loss gain
-       'cls': 37.4,  # cls loss gain
-       'cls_pw': 1.0,  # cls BCELoss positive_weight
-       'obj': 64.3,  # obj loss gain (*=img_size/320 if img_size != 320)
-       'obj_pw': 1.0,  # obj BCELoss positive_weight
-       'iou_t': 0.225,  # iou training threshold
-       'lr0': 0.00579,  # initial learning rate (SGD=5E-3, Adam=5E-4)
-       'lrf': -4.,  # final LambdaLR learning rate = lr0 * (10 ** lrf)
-       'momentum': 0.937,  # SGD momentum
-       'weight_decay': 0.000484,  # optimizer weight decay
-       'fl_gamma': 0.5,  # focal loss gamma
-       'hsv_h': 0.0138,  # image HSV-Hue augmentation (fraction)
-       'hsv_s': 0.678,  # image HSV-Saturation augmentation (fraction)
-       'hsv_v': 0.36,  # image HSV-Value augmentation (fraction)
-       'degrees': 1.98,  # image rotation (+/- deg)
-       'translate': 0.05,  # image translation (+/- fraction)
-       'scale': 0.05,  # image scale (+/- gain)
-       'shear': 0.641}  # image shear (+/- deg)
-
-# Overwrite hyp with hyp*.txt (optional)
-f = glob.glob('hyp*.txt')
-if f:
-    print('Using %s' % f[0])
-    for k, v in zip(hyp.keys(), np.loadtxt(f[0])):
-        hyp[k] = v
-        print('Set', k, 'to', str(v))
+try:
+    from models import *
+    from utils.datasets import *
+    from utils.utils import *
+    import test # import test.py to get mAP after each epoch
+except ModuleNotFoundError:
+    from yolov3.models import *
+    from yolov3.utils.datasets import *
+    from yolov3.utils.utils import *
+    import yolov3.test as test
 
 
-def train():
+
+def train(opt, **kwargs):
     cfg = opt.cfg
     data = opt.data
     img_size, img_size_test = opt.img_size if len(opt.img_size) == 2 else opt.img_size * 2  # train, test sizes
@@ -60,6 +28,15 @@ def train():
     weights = opt.weights  # initial training weights
     eps = opt.eps
     loss_memory = opt.loss_memory
+
+    results_file = kwargs['results_file']
+    last = kwargs['last']
+    best = kwargs['best']
+    wdir = kwargs['wdir']
+    mixed_precision = kwargs['mixed_precision']
+    device = kwargs['device']
+    hyp = kwargs['hyp']
+    tb_writer = kwargs['tb_writer']
 
     # Initialize
     init_seeds()
@@ -411,35 +388,58 @@ def train():
 
     return results
 
+def main(opt):
 
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--epochs', type=int, default=273)  # 500200 batches at bs 16, 117263 COCO images = 273 epochs
-    parser.add_argument('--batch-size', type=int, default=16)  # effective bs = batch_size * accumulate = 16 * 4 = 64
-    parser.add_argument('--accumulate', type=int, default=4, help='batches to accumulate before optimizing')
-    parser.add_argument('--cfg', type=str, default='cfg/yolov3-spp.cfg', help='*.cfg path')
-    parser.add_argument('--data', type=str, default='data/coco2017.data', help='*.data path')
-    parser.add_argument('--multi-scale', action='store_true', help='adjust (67% - 150%) img_size every 10 batches')
-    parser.add_argument('--img-size', nargs='+', type=int, default=[416], help='train and test image-sizes')
-    parser.add_argument('--rect', action='store_true', help='rectangular training')
-    parser.add_argument('--resume', action='store_true', help='resume training from last.pt')
-    parser.add_argument('--nosave', action='store_true', help='only save final checkpoint')
-    parser.add_argument('--notest', action='store_true', help='only test final epoch')
-    parser.add_argument('--evolve', action='store_true', help='evolve hyperparameters')
-    parser.add_argument('--bucket', type=str, default='', help='gsutil bucket')
-    parser.add_argument('--cache-images', action='store_true', help='cache images for faster training')
-    parser.add_argument('--weights', type=str, default='weights/yolov3-spp-ultralytics.pt', help='initial weights path')
-    parser.add_argument('--arc', type=str, default='default', help='yolo architecture')  # default, uCE, uBCE
-    parser.add_argument('--name', default='', help='renames results.txt to results_name.txt if supplied')
-    parser.add_argument('--device', default='', help='device id (i.e. 0 or 0,1 or cpu)')
-    parser.add_argument('--adam', action='store_true', help='use adam optimizer')
-    parser.add_argument('--single-cls', action='store_true', help='train as single-class dataset')
-    parser.add_argument('--var', type=float, help='debug variable')
-    parser.add_argument('--eps', type=float, default=0.01, help='Minimum amount by which loss should drop')
-    parser.add_argument('--loss-memory', type=int, default=False, help='Number of previous epochs over which to compare loss')
-    opt = parser.parse_args()
+    ## Setup --------------------------------------------------------------------------
+    # Used to be outside methods. Need them inside when another script is calling
+    # main()
+
+    mixed_precision = True
+    try:  # Mixed precision training https://github.com/NVIDIA/apex
+        from apex import amp
+    except:
+        mixed_precision = False  # not installed
+
+    wdir = opt.yolo_path  # weights dir
+    last = wdir + 'last.pt'
+    best = wdir + 'best.pt'
+    results_file = opt.yolo_path + 'results.txt'
+
+    # Hyperparameters (results68: 59.9 mAP@0.5 yolov3-spp-416) https://github.com/ultralytics/yolov3/issues/310
+
+    hyp = {'giou': 3.54,  # giou loss gain
+           'cls': 37.4,  # cls loss gain
+           'cls_pw': 1.0,  # cls BCELoss positive_weight
+           'obj': 64.3,  # obj loss gain (*=img_size/320 if img_size != 320)
+           'obj_pw': 1.0,  # obj BCELoss positive_weight
+           'iou_t': 0.225,  # iou training threshold
+           'lr0': 0.00579,  # initial learning rate (SGD=5E-3, Adam=5E-4)
+           'lrf': -4.,  # final LambdaLR learning rate = lr0 * (10 ** lrf)
+           'momentum': 0.937,  # SGD momentum
+           'weight_decay': 0.000484,  # optimizer weight decay
+           'fl_gamma': 0.5,  # focal loss gamma
+           'hsv_h': 0.0138,  # image HSV-Hue augmentation (fraction)
+           'hsv_s': 0.678,  # image HSV-Saturation augmentation (fraction)
+           'hsv_v': 0.36,  # image HSV-Value augmentation (fraction)
+           'degrees': 1.98,  # image rotation (+/- deg)
+           'translate': 0.05,  # image translation (+/- fraction)
+           'scale': 0.05,  # image scale (+/- gain)
+           'shear': 0.641}  # image shear (+/- deg)
+
+
+    # Overwrite hyp with hyp*.txt (optional)
+    f = glob.glob('hyp*.txt')
+    if f:
+        print('Using %s' % f[0])
+        for k, v in zip(hyp.keys(), np.loadtxt(f[0])):
+            hyp[k] = v
+            print('Set', k, 'to', str(v))
+
+
     opt.weights = last if opt.resume else opt.weights
-    print(opt)
+
+    # --------------------------------------------------------------------------------------
+
     device = torch_utils.select_device(opt.device, apex=mixed_precision, batch_size=opt.batch_size)
     if device.type == 'cpu':
         mixed_precision = False
@@ -457,7 +457,10 @@ if __name__ == '__main__':
         except:
             pass
 
-        train()  # train normally
+        train(opt, hyp=hyp, wdir=wdir, last=last,
+                best=best, results_file=results_file,
+                device=device, mixed_precision=mixed_precision,
+                tb_writer=tb_writer)  # train normally
 
     else:  # Evolve hyperparameters (optional)
         opt.notest, opt.nosave = True, True  # only test/save final epoch
@@ -503,7 +506,44 @@ if __name__ == '__main__':
                 hyp[k] = np.clip(hyp[k], v[0], v[1])
 
             # Train mutation
-            results = train()
+            results = train(opt, hyp=hyp, wdir=wdir, last=last,
+                    best=best, results_file=results_file,
+                    device=device, mixed_precision=mixed_precision,
+                    tb_writer=tb_writer)
 
             # Write mutation results
             print_mutation(hyp, results, opt.bucket)
+
+
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--epochs', type=int, default=273)  # 500200 batches at bs 16, 117263 COCO images = 273 epochs
+    parser.add_argument('--batch-size', type=int, default=16)  # effective bs = batch_size * accumulate = 16 * 4 = 64
+    parser.add_argument('--accumulate', type=int, default=4, help='batches to accumulate before optimizing')
+    parser.add_argument('--cfg', type=str, default='cfg/yolov3-spp.cfg', help='*.cfg path')
+    parser.add_argument('--data', type=str, default='data/coco2017.data', help='*.data path')
+    parser.add_argument('--multi-scale', action='store_true', help='adjust (67% - 150%) img_size every 10 batches')
+    parser.add_argument('--img-size', nargs='+', type=int, default=[416], help='train and test image-sizes')
+    parser.add_argument('--rect', action='store_true', help='rectangular training')
+    parser.add_argument('--resume', action='store_true', help='resume training from last.pt')
+    parser.add_argument('--nosave', action='store_true', help='only save final checkpoint')
+    parser.add_argument('--notest', action='store_true', help='only test final epoch')
+    parser.add_argument('--evolve', action='store_true', help='evolve hyperparameters')
+    parser.add_argument('--bucket', type=str, default='', help='gsutil bucket')
+    parser.add_argument('--cache-images', action='store_true', help='cache images for faster training')
+    parser.add_argument('--weights', type=str, default='weights/yolov3-spp-ultralytics.pt', help='initial weights path')
+    parser.add_argument('--arc', type=str, default='default', help='yolo architecture')  # default, uCE, uBCE
+    parser.add_argument('--name', default='', help='renames results.txt to results_name.txt if supplied')
+    parser.add_argument('--device', default='', help='device id (i.e. 0 or 0,1 or cpu)')
+    parser.add_argument('--adam', action='store_true', help='use adam optimizer')
+    parser.add_argument('--single-cls', action='store_true', help='train as single-class dataset')
+    parser.add_argument('--var', type=float, help='debug variable')
+    parser.add_argument('--eps', type=float, default=0.01, help='Minimum amount by which loss should drop')
+    parser.add_argument('--loss-memory', type=int, default=False, help='Number of previous epochs over which to compare loss')
+    parser.add_argument('--yolo-path', type=str, default='', help='path to yolo directory from execution path')
+    opt = parser.parse_args()
+    print(opt)
+
+    main(opt)

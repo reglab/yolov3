@@ -3,9 +3,14 @@ import json
 
 from torch.utils.data import DataLoader
 
-from models import *
-from utils.datasets import *
-from utils.utils import *
+try:
+    from models import *
+    from utils.datasets import *
+    from utils.utils import *
+except ModuleNotFoundError:
+    from yolov3.models import *
+    from yolov3.utils.datasets import *
+    from yolov3.utils.utils import *
 
 
 def test(cfg,
