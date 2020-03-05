@@ -350,8 +350,8 @@ def train(opt, **kwargs):
                 torch.save(chkpt, best)
 
             # Save backup every 10 epochs (optional)
-            # if epoch > 0 and epoch % 10 == 0:
-            #     torch.save(chkpt, wdir + 'backup%g.pt' % epoch)
+            if epoch > 0 and epoch % 10 == 0:
+                torch.save(chkpt, wdir + 'backup%g.pt' % epoch)
 
             # Delete checkpoint
             del chkpt
@@ -400,10 +400,12 @@ def main(opt):
     except:
         mixed_precision = False  # not installed
 
-    wdir = opt.yolo_path  # weights dir
+    wdir = opt.out_path + 'weights' # weights dir
+    if not os.path.exists(wdir):
+        os.makedirs(wdir)
     last = wdir + 'last.pt'
     best = wdir + 'best.pt'
-    results_file = opt.yolo_path + 'results.txt'
+    results_file = opt.out_path + 'results.txt'
 
     # Hyperparameters (results68: 59.9 mAP@0.5 yolov3-spp-416) https://github.com/ultralytics/yolov3/issues/310
 
