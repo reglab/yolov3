@@ -390,6 +390,8 @@ def train(opt, **kwargs):
 
 def main(opt):
 
+    print(opt)
+
     ## Setup --------------------------------------------------------------------------
     # Used to be outside methods. Need them inside when another script is calling
     # main()
@@ -470,16 +472,21 @@ def main(opt):
             os.system('gsutil cp gs://%s/evolve.txt .' % opt.bucket)  # download evolve.txt if exists
 
         for _ in range(200):  # generations to evolve
-            if os.path.exists('evolve.txt'):  # if evolve.txt exists: select best hyps and mutate
+            evolve_path = opt.out_path + 'evolve.txt'
+            if os.path.exists(evolve_path):  # if evolve.txt exists: select best hyps and mutate
                 # Select parent(s)
                 parent = 'single'  # parent selection method: 'single' or 'weighted'
-                x = np.loadtxt('evolve.txt', ndmin=2)
+                x = np.loadtxt(evolve_path, ndmin=2)
                 n = min(5, len(x))  # number of previous results to consider
                 x = x[np.argsort(-fitness(x))][:n]  # top n mutations
                 w = fitness(x) - fitness(x).min()  # weights
                 if parent == 'single' or len(x) == 1:
-                    # x = x[random.randint(0, n - 1)]  # random selection
-                    x = x[random.choices(range(n), weights=w)[0]]  # weighted selection
+                    try:
+                        x = x[random.choices(range(n), weights=w)[0]]  # weighted selection
+                        print('Weighted selection')
+                    except IndexError: # weights are zero
+                        x = x[random.randint(0, n - 1)]  # random selection
+                        print('Random selection')
                 elif parent == 'weighted':
                     x = (x * w.reshape(n, 1)).sum(0) / w.sum()  # weighted combination
 
@@ -514,7 +521,7 @@ def main(opt):
                     tb_writer=tb_writer)
 
             # Write mutation results
-            print_mutation(hyp, results, opt.bucket)
+            print_mutation(hyp, results, opt.bucket, path=opt.out_path)
 
 
 

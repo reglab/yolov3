@@ -822,7 +822,7 @@ def kmean_anchors(path='../coco/train2017.txt', n=9, img_size=(608, 608)):
     return k
 
 
-def print_mutation(hyp, results, bucket=''):
+def print_mutation(hyp, results, bucket='', path=''):
     # Print mutation results to evolve.txt (for use with train.py --evolve)
     a = '%10s' * len(hyp) % tuple(hyp.keys())  # hyperparam keys
     b = '%10.3g' * len(hyp) % tuple(hyp.values())  # hyperparam values
@@ -832,10 +832,10 @@ def print_mutation(hyp, results, bucket=''):
     if bucket:
         os.system('gsutil cp gs://%s/evolve.txt .' % bucket)  # download evolve.txt
 
-    with open('evolve.txt', 'a') as f:  # append result
+    with open(path + 'evolve.txt', 'a') as f:  # append result
         f.write(c + b + '\n')
-    x = np.unique(np.loadtxt('evolve.txt', ndmin=2), axis=0)  # load unique rows
-    np.savetxt('evolve.txt', x[np.argsort(-fitness(x))], '%10.3g')  # save sort by fitness
+    x = np.unique(np.loadtxt(path + 'evolve.txt', ndmin=2), axis=0)  # load unique rows
+    np.savetxt(path + 'evolve.txt', x[np.argsort(-fitness(x))], '%10.3g')  # save sort by fitness
 
     if bucket:
         os.system('gsutil cp evolve.txt gs://%s' % bucket)  # upload evolve.txt
