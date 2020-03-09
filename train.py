@@ -402,7 +402,7 @@ def main(opt):
     except:
         mixed_precision = False  # not installed
 
-    wdir = opt.out_path + 'weights' # weights dir
+    wdir = opt.out_path + 'weights' + os.sep # weights dir
     if not os.path.exists(wdir):
         os.makedirs(wdir)
     last = wdir + 'last.pt'
