@@ -120,7 +120,7 @@ def detect(opt, save_txt=False, save_img=False):
                 # Write results
                 for *xyxy, conf, cls in det:
                     if save_txt:  # Write to file
-                        with open(save_path.replace('jpg', 'txt'), 'a') as file:
+                        with open(save_path.replace('jpeg', 'txt'), 'a') as file:
                             file.write(('%g ' * 6 + '\n') % (*xyxy, cls, conf))
 
                     if save_img or view_img:  # Add bbox to image
